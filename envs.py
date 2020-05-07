@@ -1,15 +1,18 @@
+# v1.1
+# Add donkeycar reward
 import gym
 import numpy as np
 from torchvision.transforms import Compose, ToTensor, ToPILImage, Grayscale
 
-class Env():
+
+class Env:
     """
     Environment wrapper for CarRacing
     """
 
-    def __init__(self, seed=0, reward_typ=1, action_repeat = 8, img_stack = 4):
+    def __init__(self, seed=0, reward_typ=1, action_repeat=8, img_stack=4, max_steering_diff=0.2):
         """
-        Create Env Racing Car
+        Create Env Racing  Car
         """
         self.env = gym.make('CarRacing-v0')
         self.env.seed(seed)
@@ -19,6 +22,7 @@ class Env():
         self.eps = 0
         self.action_repeat = action_repeat
         self.img_stack = img_stack
+        self.max_steering_diff = max_steering_diff
 
     def reset(self):
         """
@@ -27,11 +31,13 @@ class Env():
         self.steps = 0
         self.eps += 1
         self.av_r = self.reward_memory()
+        self.last_action = [0, 0, 0]
 
         self.die = False
         img_rgb = self.env.reset()
         img_gray = self.rgb2gray(img_rgb)
         self.stack = [img_gray] * self.img_stack  # four frames for decision
+
         return np.array(self.stack)
 
     def step(self, action):
@@ -51,10 +57,28 @@ class Env():
                 total_reward += reward
                 # if no reward recently, end the episode
                 done = True if self.av_r(reward) <= -0.1 else False
-            # TODO WE CAN ALSO ADD SAVE DATA HERE
-            # TODO: HERE WE ADD NEW REWARD AS DONKEY CAR
             elif self.reward_typ == 2:
-                pass
+                throttle_reward = (action[1] / 1) / self.action_repeat
+                break_penalty = -1 * (action[2] / 1) / (self.action_repeat * 2)
+                green_penalty = 0
+                jerk_penalty = 0
+
+                if np.mean(img_rgb[:, :, 1]) > 180.0:  # Restart and punish to go to green part
+                    done = True
+                    green_penalty = -100
+                    print("DROVE OFF")
+                else:
+                    done = False
+
+                # Jerk_penalty
+                steering_diff = (self.last_action[0] - action[0]) / 2
+
+                if abs(steering_diff) > self.max_steering_diff:
+                    error = abs(steering_diff) - self.max_steering_diff
+                    jerk_penalty -= error / self.action_repeat
+                #print(action)
+                #print("break penalty ", break_penalty, "throttle ", throttle_reward, "jerk penalty ", jerk_penalty, "reward ", reward)
+                total_reward = reward + green_penalty + break_penalty + throttle_reward + jerk_penalty
             else:
                 done = die
                 total_reward += reward
@@ -91,6 +115,9 @@ class Env():
 
     def set_steps(self, steps):
         self.steps = steps
+
+    def set_last_action(self, action):
+        self.last_action = action
 
     @staticmethod
     def reward_memory():

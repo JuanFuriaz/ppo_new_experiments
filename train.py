@@ -2,7 +2,7 @@
 PPO Reinforcing learning with Pytorch on RacingCar v0
 Juan Montoya
 
-2.0
+2.1
 -Use frames instead of episodes
 
 
@@ -46,13 +46,14 @@ parser.add_argument('--tb', action='store_true', help='Tensorboard')
 parser.add_argument(
     '--log-interval', type=int, default=10000, metavar='N', help='interval between training status logs (default: 10)')
 parser.add_argument(
-    '--buffer', type=int, default=40000, metavar='N', help='Size of Buffer with Expierence Tupels ')
+    '--buffer', type=int, default=5000, metavar='N', help='Size of Buffer with Expierence Tupels ')
 parser.add_argument(
     '--batch', type=int, default=128, metavar='N', help='Batch size for sampling')
 parser.add_argument(
     '--lr', type=float, default=0.001, metavar='N', help='Learning Rate')
 parser.add_argument(
-    '--lr-min', type=float, default=0, metavar='N', help='Min value for Learning Rate using consine Annealing sheduler or Linear sheduler')
+    '--lr-min', type=float, default=0, metavar='N',
+    help='Min value for Learning Rate using consine Annealing sheduler or Linear sheduler')
 parser.add_argument(
     '--grad-norm', type=float, default=None, metavar='N', help='Maximum gradient norm for clipping gradients')
 parser.add_argument("--vae", type=str2bool, nargs='?', const=True, default=False, help='select vae')
@@ -61,6 +62,8 @@ parser.add_argument("--raw", type=str2bool, nargs='?', const=True, default=True,
 parser.add_argument('--rnn', action='store_true', help='Use gated recurrend unit')
 parser.add_argument("--reward-typ", type=int, default=1,
                     help='Type of reward \n 0 for no reward engineering \n 1 for original reward engineering \n 2 for DonkeyCar reward engineering')
+parser.add_argument(
+    '--steering', type=float, default=0.001, metavar='N', help='Max steering difference for DonkeyCar reward')
 parser.add_argument("--freeze", action='store_true', help='Freeze layers in representational models')
 parser.add_argument('--rl-path', type=str, default='contin_vae/pretrained_vae_16.ckpt', metavar='N',
                     help='Give model path for Representational learning models')
@@ -80,7 +83,7 @@ if args.debug:
             'action_vec': 0,
             'frames': 4000000,
             'eps': 1,
-            'ppo_epoch':10,
+            'ppo_epoch': 10,
             'terminate': False,
             'img_stack': 1,
             'seed': 0,
@@ -111,11 +114,11 @@ print("")
 
 run_dict = "".join(["runs/", datetime.datetime.now().strftime("%d_%m_%Y")])
 PARAMS_DICT = "".join(["params/", datetime.datetime.now().strftime("%d_%m_%Y")])
-TITLE =  "".join([args.title, "_", str(args.seed)])
+TITLE = "".join([args.title, "_", str(args.seed)])
 BEST_SCORE = 0
-csv_log_rew0 = "".join([run_dict,"/", TITLE, "_", "rew0",".csv"])
-csv_log_rew1 = "".join([run_dict,"/",  TITLE , "_", "rew1", ".csv"])
-csv_log_rew2 = "".join([run_dict,"/",  TITLE , "_", "rew2", ".csv"])
+csv_log_rew0 = "".join([run_dict, "/", TITLE, "_", "rew0", ".csv"])
+csv_log_rew1 = "".join([run_dict, "/", TITLE, "_", "rew1", ".csv"])
+csv_log_rew2 = "".join([run_dict, "/", TITLE, "_", "rew2", ".csv"])
 
 # Load Tensorboard writer and checkout for csv files
 if args.tb:
@@ -145,9 +148,10 @@ elif args.reward_typ == 2:
 else:
     CSV_LOG = csv_log_rew0
 
-
 torch.manual_seed(args.seed)
 np.random.seed(args.seed)
+if use_cuda:
+    torch.cuda.manual_seed(args.seed)
 
 
 def test(agent, env, eps_n, frames, running_score, train_step, reward_typ, vis_writer, tf_writer, csv_log):
@@ -174,6 +178,7 @@ def test(agent, env, eps_n, frames, running_score, train_step, reward_typ, vis_w
         score = 0
         state = env.reset()
         for t in range(1000):
+            # TODO: UPDATE FOR ACTION VECTOR
             action, _ = agent.select_action(state)
             state_, reward, done, die = env.step(action * np.array([2., 1., 1.]) + np.array(
                 [-1., 0., 0.]))  # Transform the actions so that in can read left turn
@@ -183,9 +188,10 @@ def test(agent, env, eps_n, frames, running_score, train_step, reward_typ, vis_w
             if die or done:
                 break
         score_l.append(score)
-        #print('Ep {}\tScore: {:.2f}\t'.format(i_ep, score))
+        # print('Ep {}\tScore: {:.2f}\t'.format(i_ep, score))
         with open(csv_log, "a") as csvfile:
-            csv.writer(csvfile).writerow([i_ep, frames, agent.training_step, score, running_score, lr, loss_ac, loss_cr, loss_agent])
+            csv.writer(csvfile).writerow(
+                [i_ep, frames, agent.training_step, score, running_score, lr, loss_ac, loss_cr, loss_agent])
 
     av = np.mean(score_l)
     md = np.median(score_l)
@@ -193,14 +199,15 @@ def test(agent, env, eps_n, frames, running_score, train_step, reward_typ, vis_w
     min = np.min(score_l)
     max = np.max(score_l)
 
-    #Saving
+    # Saving
     if train_step < agent.training_step:
         agent.save(PARAMS_DICT, TITLE)
         if BEST_SCORE < av:
             agent.save(PARAMS_DICT, TITLE + "_best")
             BEST_SCORE = av
 
-    print('Frame {}\tMoving av.: {:.1f}\tMean: {:.2f}\tMedian: {:.2f}\tStandard Dev: {:.2f}\tMin: {:.1f}\tMax: {:.1f}'.format(
+    print(
+        'Frame {}\tMoving av.: {:.1f}\tMean: {:.2f}\tMedian: {:.2f}\tStandard Dev: {:.2f}\tMin: {:.1f}\tMax: {:.1f}'.format(
             frames, running_score, av, md, std, min, max))
 
     print('Steps Update {}\tLoss PPO: {:.2f}\tLoss Actor: {:.2f}\tLoss Critic: {:.2f}\tLr: {:8.5f}'.format(
@@ -223,7 +230,6 @@ def test(agent, env, eps_n, frames, running_score, train_step, reward_typ, vis_w
         tf_writer.add_evaluation("moving", running_score)
         tf_writer.add_evaluation("median", md)
         tf_writer.add_summary("mean_std", av, std)
-
 
     # Set train values back
     agent.set_test(False)
@@ -260,7 +266,8 @@ def train():
         buffer_capacity=args.buffer
     )
 
-    env = Env(seed=args.seed, reward_typ=args.reward_typ, action_repeat = args.action_repeat, img_stack = args.img_stack)
+    env = Env(seed=args.seed, reward_typ=args.reward_typ, action_repeat=args.action_repeat, img_stack=args.img_stack,
+              max_steering_diff=args.steering)
     total_frames = 0
     total_eps = 0
     score_l = []
@@ -268,8 +275,7 @@ def train():
     frames_log = args.log_interval
     train_step = 0
 
-
-    while total_frames <= args.frames:
+    while total_frames < args.frames:
         score = 0
         state = env.reset()
         # TODO: RNN RESET
@@ -284,8 +290,10 @@ def train():
                 action, a_logp = agent.select_action(state)
 
             # TODO: ACTION TRANSFORMED JUST FOR PPO?
-            state_, reward, done, die = env.step(
-                action * np.array([2., 1., 1.]) + np.array([-1., 0., 0.]))  # passing the values to negative steering
+            action_step = action * np.array([2., 1., 1.]) + np.array([-1., 0., 0.])  # reparametrize steering values
+            state_, reward, done, die = env.step(action_step)
+            env.set_last_action(action_step)
+
             if args.render:
                 env.render()
             if args.action_vec > 0:
@@ -310,8 +318,8 @@ def train():
         running_score = running_score * 0.99 + score * 0.01
         if frames_log <= total_frames:
             frames_log += args.log_interval
-            test(agent, env, args.eps, total_frames, running_score, train_step, 1, writer_vs, writer_tb, CSV_LOG)
-           # test(agent, env, args.eps, total_frames, running_score, 0, None, None, csv_log_rew0)
+            test(agent, env, args.eps, total_frames, running_score, train_step, args.reward_typ, writer_vs, writer_tb, CSV_LOG)
+            # test(agent, env, args.eps, total_frames, running_score, 0, None, None, csv_log_rew0)
             score_l = []
 
 
