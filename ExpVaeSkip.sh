@@ -1,1 +1,1 @@
-python train_new.py --vae t --ndim 64 --img-stack 4 --log-interval 40000 --seed 0 --buffer 5000 --latent-train --tb --vis --freeze --title vaeSkipb5000r0 --rl-path contin_vae/pretrained_vae_64_stack4_conti_nonexpert_frameskip8.ckpt
+python train_new.py --vae t --ndim 64 --img-stack 4 --log-interval 40000 --seed 0 --buffer 5000 --tb --freeze --title vaeSkipb5000r0 --rl-path contin_vae/pretrained_vae_64_stack4_conti_nonexpert_frameskip8.ckpt
